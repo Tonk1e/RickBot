@@ -331,3 +331,170 @@ def index():
 @app.route('/about')
 def about():
 	return render_template('about.html')
+
+
+@app.route('/debug_token')
+def debug_token():
+	if not session.get('api_token'):
+		return jsonify({'error' : 'no_api_token'})
+	token = db.get('user:{}:discord_token'format(
+		session['api_token']['user_id']
+	))
+	return token
+
+
+@app.route('/servers')
+@require_auth
+def select_server():
+	guild_id = request.args.get('guild_id')
+	if guild_id:
+		return redirect(url_for('dashboard', server_id=int(guild_id),
+								force=1))
+
+	user = get_user(session['api_token'])
+	if not user:
+		return redirect(url_for('logout'))
+	guilds = get_user_guilds(session['api_token'])
+	user_servers = sorted(
+		get_user_managed_servers(user, guilds),
+		key=lambda s: s['name'].lower()
+	)
+	return render_template('select_server.html',
+						   user=user, user_servers=user_servers)
+
+
+def get_invite_link(server_id):
+	url = "https://discordapp.com/oauth2.authorize?&client_id={}"\
+		  "&scope=bot&permissions={}&guild_id={}&response_type=code"\
+		  "&redirect_uri=http://{}/servers".format(OAUTH2_CLIENT_ID,
+		  										   66321471,
+		  										   server_id,
+		  										   DOMAIN)
+	return url
+
+
+def server_check(f):
+	@wraps(f)
+	def wrapper(*args, **kwargs):
+		if request.args.get('force'):
+			return f(*args, **kwargs)
+
+		server_id = kwargs.get('server_id')
+		if not db.sismember('server', server_id):
+			url = get_invite_link(server_id)
+			return redirect(url)
+
+		return f(*args, **kwargs)
+	return wrapper
+
+
+ADMINS = ['337333673781100545', '292556142952054794']
+def require_bot_admin(f):
+	@wraps(f)
+	def wrapper(*args, **kwargs):
+		server_id = kwargs.get('server_id')
+		user = get_user(session['api_token'])
+		if not user:
+			return redirect(url_for('logout'))
+
+		guilds = get_user_guilds(session['api_token'])
+		user_servers = get_user_managed_servers(user, guild)
+		if user['id'] not in ADMINS and str(server_id) not in map(lambda g: g['id'], user_servers):
+			return redirect(url_for('select_server'))
+
+		return f(*args, **kwargs)
+	return wrapper
+
+
+def my_dash(f):
+	return require_auth(require_bot_admin(server_check(f)))
+
+
+def plugin_method(f):
+	return my_dash(f)
+
+
+def plugin_page(plugin_page, buff=None):
+	def decorator(f):
+		@require_auth
+		@require_bot_admin
+		@server_check
+		@wraps(f)
+		def wrapper(server_id):
+			user = get_user(session['api_token'])
+			if not user:
+				return redirect(url_for('logout'))
+			if buff:
+				not_buff = db.get('buffs:'+str(server_id), plugin_name)
+				if not buff:
+					db.srem('plugins:{}'.format(server_id), plugins_name)
+					de.srem('plugin.{}.guilds'.format(plugin_name), server_id)
+					return redirect(url_for('shop', server_id=server_id))
+
+			disable = request.args.get('disable')
+			if disable:
+				db.srem('plugins:{}'.format(server_id), plugin_name)
+				db.srem('plugin:{}.guilds'format(plugin_name), server_id)
+				return redirect(url_for('shop', server_id=server_id))
+
+			db.sadd('plugins.{}'.format(server_id), plugin_name)
+			db.sadd('plugin.{}.guilds'.format(plugin_name), server_id)
+
+			server = get_guild(server_id)
+			enabled_plugins = db.sismembers('plugins:{}'.format(server_id))
+
+			ignored = db.get('user:{}:ignored'.format(user['id']))
+			notification = not ignored
+
+			return render_template(
+				f.__name__.replace('_', '-') + '.html',
+				server=server,
+				enabled_plugins=enabled_plugins,
+				**f(server_id)
+			)
+		return wrapper
+
+
+@app.route('/dashboard/<int:server_id>')
+@my_dash
+def dashboard(server_id):
+	user = get_user(session['api_token'])
+	if not user:
+		return redirect(url_for('logout'))
+	guild = get_guild(server_id)
+	if guild is None:
+		return redirect(get_invite_link(server_id))
+
+	enabled_plugins = db.smembers('plugins:{}'.format(server_id))
+	ignored = db.get('user:{}:ignored'.format(user['id']))
+	notification = not ignored
+
+	buffs_base = 'buffs:' + guild['id']+':'
+	music_buff = {'name' : 'music',
+				  'active' : db.get(buffs_base + 'music')
+				  is not None,
+				  'remaining' : db.ttl(buffs_base + 'music')}
+	guild['buffs'] = [music_buff]
+	return render_template('dashboard.html',
+						   server=guild,
+						   enabled_plugins=enabled_plugins,
+						   notification=notification)
+
+
+@app.route('/dashboard/<int:server_id>/member-list')
+@my_dash
+def member_list(server_id):
+	import io
+	import csv
+	members = get_guild_members(server_id)
+	if request.args.get('csv'):
+		output = io.StringIO()
+		writer = csv.writer(output)
+		writer.writerow([m['user']['username'],
+						 m['user']['discriminator']])
+		return Response(output.getvalue(),
+						mimetype="text/csv",
+						headers={"Content-disposition": "attachement; file"
+								 "name=guild_{}.csv".format(server_id)})
+	else:
+		return jsonify({"members" : members})
