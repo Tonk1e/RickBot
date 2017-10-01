@@ -1,0 +1,9 @@
+flask
+requests_oauthlib
+redis
+gunicorn
+gevent
+pymongo
+paypalrestapk
+setproctitle
+git+http://github.com/rickbot/rickbot.git
