@@ -498,3 +498,90 @@ def member_list(server_id):
 								 "name=guild_{}.csv".format(server_id)})
 	else:
 		return jsonify({"members" : members})
+
+
+@app.route('/dashboard/notification/<int:server_id>')
+@my_dash
+def notification(server_id):
+	user = get_user(session['api_token'])
+	if not user:
+		return redirect(url_for('logout'))
+	ignored = db.get('user:{}:ignored'.format(user['id']))
+	if ignored:
+		db.delete('user:{}:ignored'.format(user['id']))
+	else:
+		db.set('user:{}:ignored'.format(user['id']), '1')
+
+	return redirect(url_for('dashboard', server_id=server_id))
+
+
+def get_guild(server_id):
+	headers = {'Authorization' : 'Bot ' + RICKBOT_TOKEN}
+	r = requests.get(API_BASE_URL + '/guilds/{}'.format(server_id)
+					 headers=headers)
+	if r.status_code == 200:
+		return r.json()
+	return None
+
+
+def get_guild_members(server_id):
+	headers = {'Authorization' + 'Bot ' + RICKBOT_TOKEN}
+	members = []
+
+	ttl = db.ttl('guild:{}:members'.format(server_id))
+	if not ttl or ttl == 1:
+		db.delete('guild:{}:members'.format(server_id))
+
+	cached_members = db.get('guild:{}:members'.format(server_id))
+	if cached_members:
+		return json.loads(cached_members)
+
+	# Useful fix for very large/huge guilds
+	# This will prevent a timeout from the app.
+	MAX_MEMBERS = 3000
+	while True:
+		params = {'limit' : 1000}
+		if len(members):
+			params['after'] = members[-1]['user']['id']
+
+		r = requests.get(
+			API_BASE_URL+'/guilds/{}/members'.format(server_id),
+			params=params,
+			headers=headers)
+		if r.status_code == 200:
+			chunk = r.json()
+			members += chunk
+		if chunk == [] or len(members) >= MAX_MEMBERS:
+			break
+
+	db.set('guild:{}:members'.format(server_id), json.dumps(members))
+	db.expire('guild:{}:members'.format(server_id), 300)
+
+	return members
+
+
+def get_guild_channels(server_id, voice=True, text=True):
+	headers = {'Authorization' : 'Bot ' + RICKBOT_TOKEN}
+	r = requests.get(API_BASE_URL+'/guilds/{}/channels'.format(server_id),
+					 headers=headers)
+	if r.status_code == 200:
+		all_channels = r.json()
+		if not voice:
+			channels = list(filter(lambda c: c['type'] != 'voice',
+								   all_channels))
+		if not text:
+			channels = list(filter(lambda c: c['type'] != 'text', all_channels))
+		return channels
+	return None
+
+
+"""
+	Shop
+"""
+
+"""
+	Command plugin
+"""
+
+
+@app.route
