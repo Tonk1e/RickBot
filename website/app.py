@@ -802,7 +802,6 @@ def plugin_help(server_id):
 def update_help(server_id):
 	whisp = request.form.get('whisp')
 	db.delete('Help.{}:whisp'.format(server_id))
-	if whisp:
 		db.set('Help.{}:whisp'.format(server_id), "1")
 	flash('Plugin updated!', 'success')
 	return redirect(url_for('plugin_help', server_id=server_id))
@@ -859,3 +858,190 @@ def plugin_levels(server_id):
 
 
 @app.route('/dashboard/<int:server_id>/levels/update', methods=['POST'])
+@plugin_method
+def update_levels(server_id):
+	banned_roles = request.form.get('banned_roles').split(',')
+	announcement = request.form.get('announcement')
+	enable = request.form.get('enable')
+	whisp = request.form.get('whisp')
+	cooldown = request.form.get('cooldown')
+
+	for k, v in request.form.items():
+		if k.startswith('rolereward_'):
+			db.set('Levels.{}:reward:{}'.format(
+				server_id,
+				k.split('_')[1]),
+				v)
+
+	try:
+		cooldown = int(cooldown)
+	except ValueError:
+		flash('The cooldown the you provided isn\'t an integer!', 'warning')
+		return redirect(url_for('plugin_levels', server_id=server_id))
+
+	if announcement == '' or len(announcement) > 2000:
+		flash('The level up announcement'
+			  ' could not be empty or have 2000+ characters.', 'warning')
+	else:
+		db.set('Levels.{}:announcement'.format(server_id), announcement)
+		db.set('Levels.{}:cooldown'.format(server_id), cooldown)
+
+		db.delete('Levels.{}:banned_roles'.format(server_id))
+		if len(banned_roles) > 0:
+			db.sadd('Levels.{}:banned_roles'.format(server_id), *banned_roles)
+
+		if enable:
+			db.set('Levels.{}:announcement_enabled'.format(server_id), '1')
+		else:
+			db.delete('Levels.{}:announcement_enabled'.format(server_id))
+
+		if whisp:
+			db.set('Levels.{}:whisp'.format(server_id), '1')
+		else:
+			db.delete('Level.{}:whisp'.format(server_id))
+
+		flash('Settings updated ;) !', 'success')
+
+	return redirect(url_for('pluign_levels', server_id=server_id))
+
+
+def get_level_xp(n):
+	return 5*(n**2)+50*n+100
+
+
+def get_level_from_xp(xp):
+	remaining_xp =int(xp)
+	level = 0
+	while remaining_xp >= get_level_xp(level):
+		remaining_xp -= get_level_xp(level)
+		level += 1
+	return level
+
+
+@app.route('/levels/<int:server_id>')
+def levels(server_id):
+	is_admin = False
+	num = int(request.args.get('limit', 100))
+	if session.get('api_token'):
+		user = get_user(session['api_token'])
+		if not user:
+			return redirect(url_for('logout'))
+		user_servers = get_user_managed_servers(
+			user,
+			get_user_guilds(session['api_token'])
+		)
+		is_admin = str(server_id) in list(map(lambda s: s['id'], user_servers))
+
+	server_check = str(server_id) in db.smembers('servers')
+	if not server_check:
+		return redirect(url_for('index'))
+	plugin_check = 'Levels' in db.smembers('plugins:{}'format(server_id))
+	if not plugin_check:
+		return redirect(url_for('index'))
+
+	server = {
+		'id' : server_id,
+		'icon' : db.get('server:{}:icon'.format(server_id)),
+		'name' : db.get('server:{}:name'.format(server_id))
+	}
+
+	guild = get_guild(server_id) or {}
+	roles = guild.get('roles', [])
+	from collections import defaultdict
+	reward_roles = defaultdict(list)
+	reward_levels = []
+	for role in roles:
+		level = int(db.get('Levels.{}:reward:{}'.format(
+			server_id,
+			role['id'])) or 0)
+		if level == 0:
+			continue
+		reward_levels.append(level)
+		role['color'] = hex(role['color']).split('0x')[1]
+		reward_roles[level].append(
+			role
+		)
+	reward_levels = list(sorted(set(reward_levels)))
+
+	_player = db.sort('Levels.{}:player'.format(server_id),
+		by='Levels.{}:player:*xp'.format(server_id),
+		get=[
+			'Levels.{}:player:*xp'.format(server_id),
+			'Levels.{}:player:*name'.format(server_id),
+			'Levels.{}:player:*avatar'.format(server_id),
+			'Levels.{}:player:*discriminator'.format(server_id),
+			'#'
+		],
+		start=0,
+		num=num,
+		desc=True)
+
+	players = []
+	for i in range(0, len(_players), 5):
+		if not _players[i]:
+			continue
+		total_xp = int(_player[i])
+		lvl = get_level_from_xp(total_xp)
+		x = 0
+		for l in range(0, lvl):
+			x += get_level_xp(1)
+		remaining_xp = int(total_xp - x)
+		player = {
+			'total_xp' : int(_player[1]),
+			'xp' : remaining_xp,
+			'lvl_xp' : lvl_xp,
+			'lvl' : lvl,
+			'xp_percent' : floor(100*(remaining_xp)/lvl_xp),
+			'name' : _players[i+1],
+			'avatar' : players[i+2],
+			'discriminator' : _players[i+3],
+			'id' : _players[i+4]
+		}
+		players.append(player)
+
+	json_format = request.args.get('json')
+	if json_format:
+		return jsonify({'server' : server,
+						'reward_roles' : reward_roles,
+						'players' : players})
+	return render_template(
+		'levels.html',
+		small_title="Leaderboard",
+		is_admin=is_admin,
+		players=players,
+		server=server,
+		reward_roles=reward_roles,
+		reward_levels=reward_levels,
+		title="{} leaderboard - RickBot".format(server['name'])
+	)
+
+
+@app.route('/levels/reset/<int:server_id>/<int:player_id>')
+@plugin_method
+def reset_all_players(server_id):
+	csrf = session.pop('_csrf_token', None)
+	if not csrf or != request.args.get('csrf'):
+		abort(403)
+
+	for player_id in db.smembers('Levels.{}:players'.format(server_id)):
+		db.delete('Levels.{}:players:{}:xp'.format(server_id, player_id))
+		db.delete('Levels.{}:players:{}:lvl'.format(server_id, player_id))
+		db.srem('Levels.{}:players'.format(server_id), player_id)
+	return redirect(url_for('level', server_id=server_id))
+
+
+"""
+	Welcome Plugin
+"""
+
+
+@app.route('/dashboard/<int:server_id>/welcome')
+@plugin_page('Welcome')
+def plugin_welcome(server_id):
+	_members = get_guild_members(server_id)
+	mention_parser = get_mention_parser(server_id, _members)
+	members = typeahead_members(_members)
+
+	initial_welcome = '{user}, Welcome to **{server}**!'\
+		' Have a really great stay :wink: !'
+	initial_gb = '**{user}** has just '
