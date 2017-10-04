@@ -786,3 +786,76 @@ def delete_timer(server_id, timer_index):
 
 @app.route('./dashboard/<int:server_id>/help')
 @plugin_page('Help')
+def plugin_help(server_id):
+	if db.get("Help.{}:whisp".format(server_id)):
+		whisp = "1"
+	else:
+		whisp = None
+
+	return {
+		"whisp" : whisp
+	}
+
+
+@app.route('/dashboard/<int:server_id>/update_help', methods=['POST'])
+@plugin_method
+def update_help(server_id):
+	whisp = request.form.get('whisp')
+	db.delete('Help.{}:whisp'.format(server_id))
+	if whisp:
+		db.set('Help.{}:whisp'.format(server_id), "1")
+	flash('Plugin updated!', 'success')
+	return redirect(url_for('plugin_help', server_id=server_id))
+
+
+"""
+	Levels plugin
+"""
+
+@app.route('/dashboard/<int:server_id>/levels')
+@plugin_page('Levels')
+def plugin_levels(server_id):
+	initial_announcement = 'Wagwan {player}, '\
+		'you have just leveled up to **level {level}** !'
+	announcement_enabled = db.get('Level.{}:announcement_enabled'.format(
+		server_id))
+	whisp = db.get('Levels.{}:whisp'.format(server_id))
+	announcement = db.get('Levels.{}:announcement'.format(server_id), initial_announcement)
+	if announcement is None:
+		db.set('Levels.{}:announcement'.format(server_id), initial_announcement)
+		db.set('Levels.{}:announcement_enabled'.format(server_id), '1')
+		announcement_enabled = '1'
+
+	announcement = db.get('Levels.{}:announcement'.format(server_id))
+
+	db_banned_roles = db.smembers('Levels.{}:banned_roles'.format(server_id))\
+		or []
+	guild = get_guild(server_id)
+	guild_roles = list(filter(lambda r: not r['managed'], guild['roles']))
+	banned_roles = list(filter(
+		lambda r: r['name'] in db_banned_roles or r['id'] in db_banned_roles,
+		guild_roles
+	))
+	reward_roles = list(map(
+		lambda r: {'name' : r['name'],
+				   'id' : r['id'],
+				   'color' : hex(r['color']).split('0x')[1],
+				   'level' : int(db.get('Levels.{}:reward:{}'.format(
+				   		server_id,
+				   		r['id'])) or 0)
+				   }
+		guild_roles,
+	))
+	cooldown = db.get('Levels.{}:cooldown'.format(server_id)) or 0
+	return {
+		'announcement' : announcement,
+		'announcement_enabled' : announcement_enabled,
+		'banned_roles' : banned_roles,
+		'guild_roles' : guild_roles,
+		'reward_roles' : reward_roles,
+		'cooldown' : cooldown,
+		'whisp' : whisp
+	}
+
+
+@app.route('/dashboard/<int:server_id>/levels/update', methods=['POST'])
