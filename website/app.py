@@ -1044,4 +1044,172 @@ def plugin_welcome(server_id):
 
 	initial_welcome = '{user}, Welcome to **{server}**!'\
 		' Have a really great stay :wink: !'
-	initial_gb = '**{user}** has just '
+	initial_gb = '**{user}** has just just left **{server}**. Buh bye **{user}**!'
+	welcome_message = db.get('Welcome.{}:welcome_message'.format(server_id))
+	private = db.get('Welcome.{}:private'.format(server_id)) or None
+	gb_message = db.get('Welcome.{}:gb_message'.format(server_id))
+	db_welcome_channel = db.get('Welcome.{}:channel_name'.format(server_id))
+	guild_channels = get_guild_channels(server_id, voice=False)
+	gb_enabled = db.get('Welcome.{}:gb_disabled'.format(server_id)) \
+		is None
+	welcome_channel = None
+	for channel in guild_channels:
+		if channel['name'] == db_welcome_channel or \
+				channel['id'] == db_welcome_channel:
+			welcome_channel = channel
+			break
+	if welcome_message is None:
+		db.set('Welcome.{}:welcome_message'.format(server_id), initial_welcome)
+		welcome_message = initial_welcome
+	if gb_message is None:
+		db.set('Welcome.{}:gb_message'.format(server_id), initial_gb)
+		gb_message = initial_gb
+
+	welcome_message = mention_parser(welcome_message)
+	gb_message = mention_parser(gb_message)
+
+	return {
+		'guild_members' : members,
+		'welcome_message' : welcome_message,
+		'private' : private,
+		'gb_message' : gb_message,
+		'guild_channels' : guild_channels,
+		'gb_enabled' : gb_enabled,
+		'welcome_channel' : welcome_channel
+	}
+
+
+@app.route('/dashboard/<int:server_id>/welcome/update', methods=['POST'])
+@plugin_method
+def update_welcome(server_id):
+
+	mention_decoder = get_mention_decoder(server_id)
+
+	welcome_message = request.form.get('welcome_message')
+	welcome_message = mention_decoder(welcome_message)
+	private = request.form.get('private')
+
+	gb_message = request.form.get('gb_message')
+	gb_message = mention_decoder(gb_message)
+
+	gb_enabled = request.form.get('gb_enabled')
+
+	channel = request.form.get('channel')
+
+	if gb_enabled:
+		db.delete('Welcome.{}:gb_disabled'.format(server_id))
+	else:
+		db.set('Welcome.{}:gb_disabled'.format(server_id), "1")
+
+	if private:
+		db.set('Welcome.{}:private'.format(server_id))
+	else:
+		db.delete('Welcome.{}:private'.format(server_id))
+
+	if welcome_message == '' or len(welcome_message) > 2000:
+		flash('The welcome message cannot be empty or have over 2000 characters.',
+			  'warning')
+	else:
+		if gb_message == '' or len(gb_message) > 2000:
+			flash('The goodbye message cannot be empty',
+				  ' or have more than 2000 characters', 'warning')
+		else:
+			db.set('Welcome.{}:welcome_message'.format(server_id),
+				   welcome_message)
+			db.set('Welcome.{}:gb_message'.format(server_id), gb_message)
+			db.set('Welcome.{}:channel_name'.format(server_id), channel)
+			flash('Settings updated ;) !', 'success')
+
+	return redirect(url_for('plugin_welcome', server_id=server_id))
+
+"""
+	Search
+"""
+
+SEARCH_COMMANDS = [{"name" : 'youtube',
+					"description" : "Search for your favorite video on YouTube"}
+				  {"name" : 'urban',
+				  	"description" : "Search for dank slang phrases on Urban"
+				  	" Dictionary "}
+				  {"name" : 'twitch',
+				  	"description" : "Search for your favorite Twitch streamers"}
+				  {"name" : 'imgur'
+				  	"description" : "Search for your favorite fresh memes on Imgur"}]
+
+
+@app.route('/dashboard/<int:server_id>/search')
+@plugin_page('Search')
+def plugin_search(server_id):
+	enabled_commands = [cmd['name'] for cmd in SEARCH_COMMANDS
+						if db.get("Search.{}:{}"format(server_id,
+													   cmd['name']))]
+	return {"enabled_commands" : enabled_commands,
+			"commands" : SEARCH_COMMANDS}
+
+
+@app.route('/dashboard/<int:server_id>/search/edit', methods=['POST'])
+@plugin_method
+def search_edit(server_id):
+	pipe = db.pipeline()
+
+	for cmd in SEARCH_COMMANDS:
+		pipe.delete("Search.{}:{}".format(server_id, cmd['name']))
+
+	for cmd in SEARCH_COMMANDS:
+		if request.form.get(cmd['name']):
+			pipe.set("Seach.{}:{}".format(server_id, cmd['name']), 1)
+
+	result = pipe.execute()
+
+	if result:
+		flash("Search plugin command settings updated! ;)", "success")
+	else:
+		flash("An error occured :( ...", "warning")
+
+	return redirect(url_for("plugin_search", server_id=server_id))
+
+
+"""
+	Git Plugin
+"""
+
+
+@app.route('/dashboard/<int:server_id>/git')
+@plugin_page('Git')
+def plugin_git(server_id):
+	return {}
+
+"""
+	Streamers plugin
+"""
+
+
+from rickbot.plugins import Streamers
+streamers = Streamers(in_bot=False)
+
+@app.route('/dashboard/<int:server_id>/streamers')
+@plugin_page('Streamers')
+def plugin_streamers(server_id):
+	config = streamers.get_config(server_id)
+
+	twitch_streamers = ','.join(config.get('twitch_streamers'))
+	hitbox_streamers = ','.join(config.get('hitbox_streamers'))
+
+	guild_channels = get_guild_channels(server_id, voice=False)
+
+	return {
+		'announcement_channel' : config['announcement_channel'],
+		'guild_channels' : guild_channels,
+		'announcement_msg' : config['announcement_message'],
+		'streamers' : twitch_streamers,
+		'hitbox_streamers' : hitbox_streamers
+	}
+
+@app.route('/dashboard/<int:server_id>/update_streamers', methods=['POST'])
+@plugin_method
+def update_streamers(server_id):
+	announcement_channel = request.form.get('announcement_channel')
+	announcement_msg = request.form.get('announcement_msg')
+	if announcement_msg == "":
+		flash('The announcement message cannot be empty')
+		return redirect(url_for('plugin_streamers', server_id=server_id))
