@@ -1,0 +1,26 @@
+{% extends 'full-page.html'}
+{% block content %}
+		<div class="jumbotron home-jumbotron">
+				<div class="container">
+						<div class="container">
+								<div class="col-md-6 col-sm-12 text-center">
+										<img src="{{url_for('static', filename='img/rick.png')}}" class="hidden-xs">
+										<h3>Say hi to <strong>RickBot</strong> the <img src="{{ url_for('static', filename='img/discord-logo.svg') }}" class="discord-logo2"> bot</h3>
+										<h1>Add the bot with extra steps</h1>
+										<h2>to your <img src="{{ url_for('static', filename='img/discord.svg') }}" class="discord-logo1"> server</h2>
+										<p>
+										<a href="{{url_for('login')}}" class="btn btn-home btn-lg">Add to server</a>
+										</p>
+								</div>
+								<div class="col-md-6 hidden-xs">
+										<video preload="true" autoplay loop style="height:80vh; border-radius: 10px;">
+												<source src="{{url_for('static', filename='rickbot.mp4')}}" type="video/mp4">
+												<source src="{{url_for('static', filename='rickbot.webm')}}" type="video/webm; codecs=vp8, vorbis">
+												<source type="video/ogg; codecs=theora, vorbis" src="{{url_for('static', filename='rickbot.ogg')}}">
+												Your browser does not support this video tag
+										</video>
+								</div>
+						</div>
+				</div>
+		</div>
+{% endblock %}
