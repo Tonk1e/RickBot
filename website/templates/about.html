@@ -1,0 +1,42 @@
+{% extends 'full-page.html %'}
+{% block content %}
+		<div class="jumbotron home-jumbotron">
+				<div class="container">
+						<div class="row">
+								<div class="col-md-6 animated bounceInLeft v-align">
+										{% import 'macros/plugin.html' as plugin %}
+										<h3>The dankest features</h3>
+										<div class="list-group" style="color:#384549; opacity:0.6;">
+												{{ plugin.view(
+												'Levels',
+												view='plugin_levels',
+												no_links=True,
+												description='Let your server members gain some <strong>XP</strong> and get new <strong>Levels</strong> by talking in your chats!',
+												server=server
+												)}}
+												{{ plugin.view(
+												'Commands',
+												view='plugin_commands',
+												description='Add, remove and manage your own <strong>AMAZING</strong> custom commands!',
+												server=server,
+												no_links=True,
+												)}}
+												{{plugin.view(
+												'YouTubeandTwitch',
+												dank_name='YouTube and Twitch',
+												view='plugin_help',
+												no_links=True,
+												description="Search the web for YouTube videos and get notified when your favorite Twitch streamers go live!",
+												server=server
+												)}}
+										</div>
+								</div><!--
+								--><div class="col-md-6 text-center animated bounceInRight v-align">
+										<h2>Who created this?</h2>
+										<img src="{{url_for('static', filename='img/euab.jpg')}}" class="img-circle"><br />
+										<p>Ayo, I'm <strong>Euab</strong>.<br /> I made the first version of RickBot in about a week. </p>
+									</div>
+								</div>
+						</div>
+				</div>
+{% endblock %}
