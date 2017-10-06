@@ -1211,5 +1211,225 @@ def update_streamers(server_id):
 	announcement_channel = request.form.get('announcement_channel')
 	announcement_msg = request.form.get('announcement_msg')
 	if announcement_msg == "":
-		flash('The announcement message cannot be empty')
+		flash('The announcement message cannot be empty!', 'warning')
 		return redirect(url_for('plugin_streamers', server_id=server_id))
+
+	twitch_streamers = strip(request.form.get('streamers').split(','))
+	hitbox_streamers = strip(request.form.get('hitbox_streamers').split(','))
+
+	new_config = {'announcement_channel' : announcement_channel,
+				  'announcement_message' : announcement_msg,
+				  'twitch_streamers' : twitch_streamers,
+				  'hitbox_streamers' : hitbox_streamers}
+	streamers.patch_config(server_id, new_config)
+
+	flash('Configuration updated successfully!',
+		  'success')
+	return redirect(url_for('plugin_streamers', server_id=server_id))
+
+"""
+	Redit Plugin
+"""
+
+
+from rickbot.plugins import Reddit
+reddit = Reddit(in_bot=False)
+
+@app.route('/dashboard/<int:server_id>/reddit')
+@plugin_page('Reddit')
+def plugin_reddit(server_id):
+    guild_channels = get_guild_channels(server_id, voice=False)
+    config = reddit.get_config(server_id)
+    subs = ','.join(config['subreddits'])
+    display_channel = config['announcement_channel']
+    return {
+        'subs': subs,
+        'display_channel': display_channel,
+        'guild_channels': guild_channels,
+    }
+
+
+@app.route('/dashboard/<int:server_id>/update_reddit', methods=['POST'])
+@plugin_method
+def update_reddit(server_id):
+    display_channel = request.form.get('display_channel')
+    subs = strip(request.form.get('subs').split(','))
+
+    config_patch = {'announcement_channel': display_channel,
+                    'subreddits': subs}
+    reddit.patch_config(server_id, config_patch)
+
+    flash('Configuration updated successfully!', 'success')
+    return redirect(url_for('plugin_reddit', server_id=server_id))
+
+"""
+	Moderator Plugin
+"""
+
+
+@app.route('/dashboard/<int:server_id>/moderator')
+@plugin_page('Moderator')
+def plugin_moderator(server_id):
+    db_moderator_roles = db.smembers('Moderator.{}:roles'.format(server_id))\
+        or []
+    guild = get_guild(server_id)
+    guild_roles = guild['roles']
+    moderator_roles = list(filter(
+        lambda r: r['name'] in db_moderator_roles or
+        r['id'] in db_moderator_roles,
+        guild_roles
+    ))
+    clear = db.get('Moderator.{}:clear'.format(server_id))
+    banned_words = db.get('Moderator.{}:banned_words'.format(server_id))
+    slowmode = db.get('Moderator.{}:slowmode'.format(server_id))
+    mute = db.get('Moderator.{}:mute'.format(server_id))
+    return {
+        'moderator_roles': moderator_roles,
+        'guild_roles': guild_roles,
+        'clear': clear,
+        'banned_words': banned_words or '',
+        'slowmode': slowmode,
+        'mute': mute
+    }
+
+
+@app.route('/dashboard/<int:server_id>/update_moderator', methods=['POST'])
+@plugin_method
+def update_moderator(server_id):
+    moderator_roles = request.form.get('moderator_roles').split(',')
+
+    banned_words = strip(request.form.get('banned_words').split(','))
+    banned_words = ','.join(banned_words)
+
+    db.delete('Moderator.{}:roles'.format(server_id))
+    for role in moderator_roles:
+        if role != "":
+            db.sadd('Moderator.{}:roles'.format(server_id), role)
+
+    db.delete('Moderator.{}:clear'.format(server_id))
+    db.delete('Moderator.{}:slowmode'.format(server_id))
+    db.delete('Moderator.{}:mute'.format(server_id))
+    db.set('Moderator.{}:banned_words'.format(server_id), banned_words)
+
+    clear = request.form.get('clear')
+    slowmode = request.form.get('slowmode')
+    mute = request.form.get('mute')
+
+    if clear:
+        db.set('Moderator.{}:clear'.format(server_id), '1')
+    if slowmode:
+        db.set('Moderator.{}:slowmode'.format(server_id), '1')
+    if mute:
+        db.set('Moderator.{}:mute'.format(server_id), '1')
+
+    flash('Configuration updated ;)!', 'success')
+
+    return redirect(url_for('plugin_moderator', server_id=server_id))
+
+
+"""
+	Music Plugin
+"""
+
+
+@app.route('/dashboard/<int:server_id>/music')
+@plugin_page('Music', buff=music)
+def plugin_page(server_id):
+	db_allowed_roles = db.smembers("Music.{}:allowed_roles".format(server_id))\
+		or []
+	db_requesters_roles = db.smembers(
+		'Music.{}:requesters_roles'.format(server_id)
+	) or []
+	guild = get_guild(server_id)
+	guild_roles = guild['roles']
+	allowed_roles = filter(
+		lambda r: r['name'] in db_allowed_roles or r['id'] in db_allowed_roles,
+		guild_roles
+	)
+	requesters_roles = filter(
+		lambda r: r['id'] in db_requesters_roles,
+		guild_roles
+	)
+	return {
+		'guild_roles' : guild_roles,
+		'allowed_roles' : list(allowed_roles)
+		'requesters_roles' : list(requesters_roles)
+	}
+
+
+@app.route('/dashboard/<int:server_id>/update_music', methods=['POST'])
+@plugin_method
+def update_music(server_id):
+	allowed_roles = request.form.get('allowed_roles', '')split(',')
+	requesters_roles = request.form.get('requesters_roles', '').split(',')
+	db.delete('Music.{}:allowed_roles'.format(server_id))
+	db.delete('Music.{}:requesters_roles', '').split(',')
+	for role in allowed_roles:
+		db.sadd('Music.{}:allowed_roles'.format(server_id), role)
+	for role in requesters_roles:
+		db.sadd('Music.{}:requesters_roles'.format(server_id), role)
+	flash('Configuration updated successfully!', 'success')
+
+	return redirect(url_for('plugin_music', server_id=server_id))
+
+
+@app.route('/request_playlist/<int:server_id>')
+def request_playlist(server_id):
+	if 'Music' not in db.smembers('plugins:{}'.format(server_id)):
+		return redirect(url_for('index'))
+
+	playlist = db.lrange('Music.{}:request_queue'.format(server_id), 0, -1)
+	playlist = list(map(lambda v: json.loads(v), playlist))
+
+	is_admin = False
+	if session.get('api_token'):
+		user = get_user(session['api_token'])
+		if not user:
+			return redirect(url_for('logout'))
+		user_servers = get_user_managed_servers(
+			user,
+			get_user_guilds(session['api_token'])
+		)
+		is_admin = str(server_id) in list(map(lambda s: s['id'], user_servers))
+
+	server = {
+		'id' : server_id,
+		'icon' : db.get('server:{}:icon'.format(server_id)),
+		'name' : db.get('server:{}:name'.format(server_id))
+	}
+
+	return render_template('request-playlist.html', playlist=playlist,
+							server=server, is_admin=is_admin)
+
+
+@app.route('/delete_request/<int:server_id>/<int:pos>')
+@plugin_method
+def delete_request(server_id, pos):
+	playlist = db.lrange('Music.{}:request_queue'.format(server_id), 0, -1)
+	if pos < len(playlist):
+		del playlist[pos]
+		db.delete('Music.{}:request_queue'.format(server_id))
+		for vid in playlist:
+			db.rpush('Music.{}:request_queue'.format(server_id), vid)
+
+
+@app.before_first_request
+def setup_logging():
+	# In production mode, add log handler to sys.stderr.
+	app.logger.addHandler(logging.StreamHandler())
+	app.logger.setLevel(logging.INFO)
+
+
+if __name__ == '__main__':
+	app.debug = True
+	from os import path
+
+	extra_dirs = ['templates']
+	extra_files = extra_dirs[:]
+	for extra_dir in extra_dirs, files in os.walk(extra_dir):
+		for filename in files:
+			filename = path.join(dirname, filename)
+			if path.isfile(filename):
+				extra_files.append(filename)
+
+	app.run(extra_files=extra_files)
