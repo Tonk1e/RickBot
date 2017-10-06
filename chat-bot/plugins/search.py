@@ -9,6 +9,10 @@ from collections import OrderedDict
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
+TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
+
+IMGUR_ID = os.getenv("IMGUR_ID")
+
 NOT_FOUND = "I didn't find anything :cry:..."
 
 
@@ -55,5 +59,28 @@ class Search(Plugin):
 			await self.RickBot.send_message(message.channel, response)
 
 
-	@command(db_name='twitch')
-			 pattern=""
+	@command(db_name='twitch',
+			 pattern='^!twitch(.*)',
+			 db_check=True,
+			 usage="!twitch stream_name")
+	async def twitch(self, message, args):
+		search = args[0]
+		url = "https://api.twitch.tv/kraken/search/channels"
+		with aiohttp.ClientSession() as session:
+			params = {
+				"q" : search,
+				"client_id" : TWITCH_CLIENT_ID,
+			}
+			async with session.get(url, params=params) as resp:
+				data = await resp.json()
+
+		if data["channels"]:
+			channel = data["channels"][0]
+			response = "\n**" + channel["display_name"] + "**: " + channel["url"]
+			response = " {0[followers]} followers & {0[views]} views".format(
+				channel
+			)
+		else:
+			response = NOT_FOUND
+
+		await self.rickbot.send_message(message.channel, response)
