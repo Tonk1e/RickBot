@@ -1,0 +1,97 @@
+{% extends 'dash-base.html' %}
+{% block dash_content %}
+		<div class="container">
+				<div class="row">
+						{% include 'sidebar.html' %}
+						{% set csrf = csrf-token() %}
+								<div class="col-md-8">
+										<h3>Moderator <a href="?disable=1" class="btn btn-warning btn-xs">Disable</a></h3>
+										{% include 'flash.html' %}
+										<form id="levels" methods="POST" action="{{url_for('update_moderator', server_id=server['id']}}">
+												<div class="form-group">
+														<input name=_csrf_token type=hidden value="{{ csrf }}">
+														<h3>!Clear
+																<div class="checkbox">
+																		<label>
+																				<input type="checkbox" name="clear" {% if clear %} checked {% endif %}> On/Off
+																		</label>
+																</div>
+														</h3>
+														<div class="well well-sm">
+																<strong>Usage: </strong> <br />
+																<strong>!clear @someone</strong> Delete some messages sent by <em>@someone</em> up to 100 messages.<br />
+																<strong>!clear [num]</strong> Delete the [num] messages. It can go up to 1000. Large or huge numbers can take some time to clear and may crash your discord on mobile devices!.<br \>
+														</div>
+								<h3>!Slowmode
+								<div class="checkbox">
+								<label>
+								<input type="checkbox" name="slowmode" {% if slowmode %} checked {% endif %}> On/Off
+								</label>
+								</div>
+								</h3>
+								<div class="well well-sm">
+								<strong>Usage :</strong> <br />
+								<strong>!slowmode [num]</strong> Puts the channel into slewwww mode <em>[num]</em> seconds.<br />
+								<strong>!slowoff</strong> Turns off the slow mode.
+								</div>
+								<h3>!Mute
+										<div class="checkbox">
+												<label>
+														<input type="checkbox" name="mute" {% if mute %} checked {% endif %}> On/Off
+												</label>
+										</div>
+								</h3>
+								<div class="well well-sm">
+										<strong>Usage: </strong> <br />
+										<strong>!mute @someone</strong> Mute <em>@someone</em> in the current channel.<br />
+										<strong>!umute @someone</strong> Unmute <em>@someone</em> in the current channel. They can talk now!
+								</div>
+								<h3>Banned words</h3>
+
+								<input class="form-control input-lg" name="banned_words" data-role="tagsinput" vale="{{banned_words}}" type="text" id="banned_words">
+								<div class="well well-sm">
+										<strong>Add comma separated banned words. (People can't say them!) </strong> <br />
+										<strong>Example: </strong>f*ck, c*nt, sh*t, wh*re
+								</div>
+
+
+								<h3>Allowed Roles</h3>
+								<input type="text" data-role="tagsinput" name="moderator_roles" class="moderator_roles"/><br />
+								<div class="well well-sm">
+										These roles, are allowed to use the commands in this plugin.
+								</div>
+								<script>
+$(function() {
+		var roles = Bloodhound({
+				datumTokenizer: Bloodhound.tokenizers.obj.whitespace('name'),
+				queryTokenizer: Bloodhound.tokenizers.whitespace,
+				local: {{guild_roles|tojson|safe}}
+		});
+		roles.initialize();
+
+		var elt = $('.moderator_roles');
+		elt.tagsinput({
+				itemValue: 'id',
+				itemText: 'name',
+				typeaheadjs: {
+						name: 'roles',
+						displayKey: 'name',
+						source: role.ttAdapter()
+				}
+		});
+		{% for role in moderator_roles %}
+				elt.tagsinput('add', {{role|tojson|safe}});
+		{% endfor %}
+});
+								</script>
+								<br />
+								<button type="submit" class="btn btn-primary">Save</button>
+												</div>
+										</form>
+								</div>
+
+				</div>
+		</div>
+
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/typeahead.js/0.11.1/typeahead.bundle.min.js"></script>moderator_roles
+{% endblock %}
